@@ -1,12 +1,13 @@
 const axios = require('axios');
 const config = require('../config/config');
 
+const useAppPassword = config.wp.adminUser && config.wp.appPassword;
+
 const wpApi = axios.create({
   baseURL: `${config.wc.baseUrl}/wp-json/wp/v2`,
-  auth: {
-    username: config.wc.consumerKey,
-    password: config.wc.consumerSecret,
-  },
+  auth: useAppPassword
+    ? { username: config.wp.adminUser, password: config.wp.appPassword }
+    : { username: config.wc.consumerKey, password: config.wc.consumerSecret },
   timeout: 30000,
 });
 

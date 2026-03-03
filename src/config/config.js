@@ -10,6 +10,11 @@ module.exports = {
     consumerSecret: process.env.WC_CONSUMER_SECRET,
   },
 
+  wp: {
+    adminUser: process.env.WP_ADMIN_USER || '',
+    appPassword: process.env.WP_APP_PASSWORD || '',
+  },
+
   jwt: {
     secret: process.env.JWT_SECRET || 'dev-secret-change-me',
     expiresIn: process.env.JWT_EXPIRES_IN || '30d',
