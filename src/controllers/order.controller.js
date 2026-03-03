@@ -8,6 +8,16 @@ function extractOrderMeta(order) {
     const entry = meta.find((m) => m.key === key);
     return entry ? entry.value : null;
   };
+
+  const locationKeys = meta
+    .filter((m) => /lat|lng|long|location|customer/i.test(m.key))
+    .map((m) => `${m.key}=${m.value}`);
+  if (locationKeys.length > 0) {
+    console.log(`[order#${order.id}] location meta:`, locationKeys.join(', '));
+  } else {
+    console.log(`[order#${order.id}] NO location meta found. All keys:`, meta.map((m) => m.key).join(', '));
+  }
+
   const lat = get('_customer_latitude') || get('_billing_latitude') || null;
   const lng = get('_customer_longitude') || get('_billing_longitude') || null;
 
