@@ -3,7 +3,7 @@ const { getUserByEmail } = require('../utils/wpApi');
 const { generateToken } = require('../utils/jwt');
 const { fetchUserRole, WP_ROLE_MAP } = require('../middleware/roleAuth');
 
-/**
+/** 
  * Find a user by email across WooCommerce customers and WordPress users.
  * Returns a normalised object that fetchUserRole can consume, or null.
  */

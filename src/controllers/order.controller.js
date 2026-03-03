@@ -8,12 +8,18 @@ function extractOrderMeta(order) {
     const entry = meta.find((m) => m.key === key);
     return entry ? entry.value : null;
   };
+  const lat = get('_customer_latitude') || get('_billing_latitude') || null;
+  const lng = get('_customer_longitude') || get('_billing_longitude') || null;
+
   return {
     city_id: get('_shaaba_order_city') ? parseInt(get('_shaaba_order_city'), 10) : null,
     branch_id: get('_shaaba_order_branch') ? parseInt(get('_shaaba_order_branch'), 10) : null,
     delivery_user_id: get('_shaaba_order_delivery_user')
       ? parseInt(get('_shaaba_order_delivery_user'), 10)
       : null,
+    customer_latitude: lat,
+    customer_longitude: lng,
+    customer_location_address: get('_customer_location_address') || null,
   };
 }
 
@@ -39,6 +45,9 @@ function transformOrder(order) {
     city_id: extracted.city_id,
     branch_id: extracted.branch_id,
     delivery_user_id: extracted.delivery_user_id,
+    customer_latitude: extracted.customer_latitude,
+    customer_longitude: extracted.customer_longitude,
+    customer_location_address: extracted.customer_location_address,
     payment_method: order.payment_method,
     payment_method_title: order.payment_method_title,
     total: order.total,
