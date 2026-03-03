@@ -1,0 +1,27 @@
+{
+  "name": "sshabaa-api-server",
+  "version": "1.0.0",
+  "description": "Sshabaa middleware API server - connects mobile app to WordPress/WooCommerce",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "bcryptjs": "^2.4.3",
+    "sql.js": "^1.11.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "express-validator": "^7.2.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "uuid": "^11.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

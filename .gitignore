@@ -1,0 +1,4 @@
+node_modules/
+data/sshabaa.db
+.env
+*.log
