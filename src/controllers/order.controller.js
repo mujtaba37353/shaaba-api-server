@@ -69,15 +69,41 @@ function transformOrder(order) {
   };
 }
 
-function checkOrderAccess(user, orderMeta) {
+function checkOrderAccess(user, orderMeta, orderStatus) {
   if (SUPERVISOR_ROLES.includes(user.role)) return true;
   if (BRANCH_ROLES.includes(user.role)) {
     return orderMeta.branch_id === user.assigned_branch;
   }
   if (user.role === ROLES.DELIVERY_USER) {
-    return orderMeta.delivery_user_id === user.id;
+    // Assigned orders
+    if (orderMeta.delivery_user_id === user.id) return true;
+    // Unassigned new orders in the driver's city (claimable)
+    if (
+      !orderMeta.delivery_user_id &&
+      orderStatus === 'processing' &&
+      user.assigned_city &&
+      orderMeta.city_id === user.assigned_city
+    ) {
+      return true;
+    }
+    return false;
   }
   return false;
+}
+
+function parseWcResponse(response) {
+  if (Array.isArray(response)) {
+    return { orders: response, total: response.length, totalPages: 1 };
+  }
+  if (response && response.headers) {
+    return {
+      orders: response.data,
+      total: parseInt(response.headers['x-wp-total'], 10) || 0,
+      totalPages: parseInt(response.headers['x-wp-totalpages'], 10) || 0,
+    };
+  }
+  const arr = Array.isArray(response) ? response : [];
+  return { orders: arr, total: arr.length, totalPages: 1 };
 }
 
 async function getOrders(req, res, next) {
@@ -95,9 +121,63 @@ async function getOrders(req, res, next) {
     const { role } = req.user;
 
     if (role === ROLES.DELIVERY_USER) {
-      params.meta_key = '_shaaba_order_delivery_user';
-      params.meta_value = String(req.user.id);
-    } else if (BRANCH_ROLES.includes(role)) {
+      console.log(`[orders] Delivery user #${req.user.id} city=${req.user.assigned_city} fetching orders...`);
+      // Delivery user sees: their assigned orders + unassigned "processing" orders in their city
+      const assignedParams = { ...params, meta_key: '_shaaba_order_delivery_user', meta_value: String(req.user.id) };
+      const assignedResponse = await wc.get('/orders', { params: assignedParams, transformResponse: undefined });
+      let assignedOrders = parseWcResponse(assignedResponse).orders;
+      console.log(`[orders] Assigned orders: ${assignedOrders.length}`);
+
+      // Also fetch unassigned new orders in the driver's city
+      let unassignedOrders = [];
+      if (req.user.assigned_city) {
+        const cityParams = {
+          per_page: 50,
+          status: 'processing',
+          meta_key: '_shaaba_order_city',
+          meta_value: String(req.user.assigned_city),
+        };
+        try {
+          const cityResponse = await wc.get('/orders', { params: cityParams, transformResponse: undefined });
+          const cityOrders = parseWcResponse(cityResponse).orders;
+          // Keep only orders with no delivery user assigned
+          unassignedOrders = cityOrders.filter((o) => {
+            const m = extractOrderMeta(o);
+            return !m.delivery_user_id;
+          });
+          console.log(`[orders] City orders: ${cityOrders.length}, unassigned: ${unassignedOrders.length}`);
+        } catch (err) {
+          console.log(`[orders] City orders fetch failed: ${err.message}`);
+        }
+      }
+
+      // Merge and deduplicate
+      const seenIds = new Set(assignedOrders.map((o) => o.id));
+      for (const o of unassignedOrders) {
+        if (!seenIds.has(o.id)) {
+          assignedOrders.push(o);
+          seenIds.add(o.id);
+        }
+      }
+
+      // Safety net filter
+      const userId = req.user.id;
+      const userCity = req.user.assigned_city;
+      assignedOrders = assignedOrders.filter((o) => {
+        const m = extractOrderMeta(o);
+        if (m.delivery_user_id === userId) return true;
+        if (!m.delivery_user_id && m.city_id === userCity && o.status === 'processing') return true;
+        return false;
+      });
+
+      console.log(`[orders] Final count for delivery user: ${assignedOrders.length}`);
+      return res.json({
+        orders: assignedOrders.map(transformOrder),
+        pagination: { page, per_page, total: assignedOrders.length, total_pages: 1 },
+      });
+    }
+
+    if (BRANCH_ROLES.includes(role)) {
       params.meta_key = '_shaaba_order_branch';
       params.meta_value = String(req.user.assigned_branch);
     } else if (SUPERVISOR_ROLES.includes(role)) {
@@ -119,29 +199,9 @@ async function getOrders(req, res, next) {
       transformResponse: undefined,
     });
 
-    let orders, total, totalPages;
+    let { orders, totalPages } = parseWcResponse(response);
 
-    if (Array.isArray(response)) {
-      orders = response;
-      total = orders.length;
-      totalPages = 1;
-    } else if (response && response.headers) {
-      orders = response.data;
-      total = parseInt(response.headers['x-wp-total'], 10) || 0;
-      totalPages = parseInt(response.headers['x-wp-totalpages'], 10) || 0;
-    } else {
-      orders = Array.isArray(response) ? response : [];
-      total = orders.length;
-      totalPages = 1;
-    }
-
-    // Server-side filtering safety net (in case WC ignores meta_key params)
-    if (role === ROLES.DELIVERY_USER) {
-      orders = orders.filter((o) => {
-        const m = extractOrderMeta(o);
-        return m.delivery_user_id === req.user.id;
-      });
-    } else if (BRANCH_ROLES.includes(role) && req.user.assigned_branch) {
+    if (BRANCH_ROLES.includes(role) && req.user.assigned_branch) {
       orders = orders.filter((o) => {
         const m = extractOrderMeta(o);
         return m.branch_id === req.user.assigned_branch;
@@ -163,7 +223,7 @@ async function getOrder(req, res, next) {
     const order = await wc.get(`/orders/${id}`);
 
     const orderMeta = extractOrderMeta(order);
-    if (!checkOrderAccess(req.user, orderMeta)) {
+    if (!checkOrderAccess(req.user, orderMeta, order.status)) {
       return res.status(403).json({
         code: 'forbidden',
         message: 'You do not have access to this order',
@@ -207,7 +267,7 @@ async function updateOrderStatus(req, res, next) {
     const order = await wc.get(`/orders/${id}`);
     const orderMeta = extractOrderMeta(order);
 
-    if (!checkOrderAccess(req.user, orderMeta)) {
+    if (!checkOrderAccess(req.user, orderMeta, order.status)) {
       return res.status(403).json({
         code: 'forbidden',
         message: 'You do not have access to this order',
@@ -323,4 +383,78 @@ async function assignDelivery(req, res, next) {
   }
 }
 
-module.exports = { getOrders, getOrder, updateOrderStatus, assignDelivery };
+async function claimOrder(req, res, next) {
+  try {
+    const { id } = req.params;
+
+    const order = await wc.get(`/orders/${id}`);
+    const orderMeta = extractOrderMeta(order);
+
+    // Must be in "processing" status
+    if (order.status !== 'processing') {
+      return res.status(400).json({
+        code: 'invalid_status',
+        message: `لا يمكن استلام الطلب - الحالة الحالية: ${order.status}`,
+      });
+    }
+
+    // Must not already be assigned to another driver
+    if (orderMeta.delivery_user_id && orderMeta.delivery_user_id !== req.user.id) {
+      return res.status(409).json({
+        code: 'already_claimed',
+        message: 'تم استلام هذا الطلب من مندوب آخر',
+        claimed_by: orderMeta.delivery_user_id,
+      });
+    }
+
+    // Verify driver is in the same city as the order
+    if (orderMeta.city_id && req.user.assigned_city && orderMeta.city_id !== req.user.assigned_city) {
+      return res.status(403).json({
+        code: 'city_mismatch',
+        message: 'هذا الطلب خارج نطاق مدينتك',
+      });
+    }
+
+    // Assign delivery user + change status to sh-received atomically
+    const updatedMeta = (order.meta_data || []).map((m) => {
+      if (m.key === '_shaaba_order_delivery_user') {
+        return { ...m, value: String(req.user.id) };
+      }
+      return m;
+    });
+
+    const hasDeliveryMeta = updatedMeta.some((m) => m.key === '_shaaba_order_delivery_user');
+    if (!hasDeliveryMeta) {
+      updatedMeta.push({ key: '_shaaba_order_delivery_user', value: String(req.user.id) });
+    }
+
+    const updated = await wc.put(`/orders/${id}`, {
+      status: 'sh-received',
+      meta_data: updatedMeta,
+    });
+
+    // Verify the claim succeeded (another driver might have claimed between read and write)
+    const verifyMeta = extractOrderMeta(updated);
+    if (verifyMeta.delivery_user_id !== req.user.id) {
+      return res.status(409).json({
+        code: 'claim_failed',
+        message: 'تم استلام هذا الطلب من مندوب آخر',
+      });
+    }
+
+    try {
+      await wc.post(`/orders/${id}/notes`, {
+        note: `تم استلام الطلب بواسطة المندوب ${req.user.name} (#${req.user.id})`,
+        customer_note: false,
+      });
+    } catch (_) {
+      /* non-critical */
+    }
+
+    return res.json({ order: transformOrder(updated) });
+  } catch (error) {
+    next(error);
+  }
+}
+
+module.exports = { getOrders, getOrder, updateOrderStatus, assignDelivery, claimOrder };

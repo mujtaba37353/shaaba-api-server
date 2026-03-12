@@ -24,7 +24,7 @@ async function getCityDeliveryWorkers(req, res, next) {
       return cityMeta && String(cityMeta.value) === String(cityId);
     });
 
-    const activeStatuses = ['processing', 'sh-pickup', 'sh-progress', 'sh-ready', 'sh-otw'];
+    const activeStatuses = ['processing', 'sh-received'];
     const statusQuery = activeStatuses.join(',');
 
     const workers = await Promise.all(
@@ -90,7 +90,7 @@ async function assignCity(req, res, next) {
 
     const customer = await wc.get(`/customers/${userId}`);
 
-    const activeStatuses = ['processing', 'sh-pickup', 'sh-progress', 'sh-ready', 'sh-otw'];
+    const activeStatuses = ['processing', 'sh-received'];
     let activeOrders = [];
     try {
       const orders = await wc.get('/orders', {

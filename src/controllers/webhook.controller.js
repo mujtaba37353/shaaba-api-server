@@ -45,33 +45,29 @@ async function handleWooCommerceWebhook(req, res, next) {
 
 const STATUS_LABELS = {
   processing: 'جديد',
-  'sh-pickup': 'قيد الاستلام',
-  'sh-progress': 'قيد التنفيذ',
-  'sh-ready': 'جاهز',
-  'sh-otw': 'في الطريق',
+  'sh-received': 'تم الاستلام',
   completed: 'مكتمل',
   cancelled: 'ملغي',
   refunded: 'مسترجع',
 };
 
-async function getStaffIdsForOrder(branchId) {
-  if (!branchId) return [];
+async function getDeliveryIdsForCity(cityId) {
+  if (!cityId) return [];
 
   try {
     const customers = await wc.get('/customers', {
       params: { role: 'all', per_page: 100 },
     });
-    const staff = (Array.isArray(customers) ? customers : []).filter((c) => {
+    const drivers = (Array.isArray(customers) ? customers : []).filter((c) => {
       const meta = c.meta_data || [];
-      const branch = meta.find((m) => m.key === '_shaaba_assigned_branch');
-      const role = c.role;
+      const city = meta.find((m) => m.key === '_shaaba_assigned_city');
       return (
-        branch &&
-        String(branch.value) === String(branchId) &&
-        ['branch_manager', 'branch_user'].includes(role)
+        city &&
+        String(city.value) === String(cityId) &&
+        c.role === 'delivery_user'
       );
     });
-    return staff.map((s) => s.id);
+    return drivers.map((d) => d.id);
   } catch (_) {
     return [];
   }
@@ -88,7 +84,7 @@ async function processOrderChange(order) {
   };
 
   const deliveryUserId = getMeta('_shaaba_order_delivery_user');
-  const branchId = getMeta('_shaaba_order_branch');
+  const cityId = getMeta('_shaaba_order_city');
 
   const existing = monitor.get.get({ order_id: orderId });
 
@@ -109,19 +105,20 @@ async function processOrderChange(order) {
   const orderRef = `#${order.number || orderId}`;
 
   if (isNewOrder && currentStatus === 'processing') {
-    const branchStaff = await getStaffIdsForOrder(branchId);
-    if (branchStaff.length > 0) {
+    // Notify all delivery drivers in the order's city
+    const cityDrivers = await getDeliveryIdsForCity(cityId);
+    if (cityDrivers.length > 0) {
       try {
-        await sendPushNotification(branchStaff, {
+        await sendPushNotification(cityDrivers, {
           order_id: orderId,
           order_number: order.number || String(orderId),
           status: currentStatus,
           type: 'new_order',
           title: `طلب جديد ${orderRef}`,
-          body: `تم استلام طلب جديد - المبلغ: ${order.total || '0'} ر.س`,
+          body: `طلب جديد في منطقتك - المبلغ: ${order.total || '0'} ر.س`,
         }, { activeOnly: false });
       } catch (err) {
-        console.error('[webhook] Branch push failed:', err.message);
+        console.error('[webhook] City drivers push failed:', err.message);
       }
     }
   }
@@ -165,7 +162,7 @@ async function pollOrders() {
   isPolling = true;
 
   try {
-    const activeStatuses = ['processing', 'sh-pickup', 'sh-progress', 'sh-ready', 'sh-otw'];
+    const activeStatuses = ['processing', 'sh-received'];
     const orders = await wc.get('/orders', {
       params: { status: activeStatuses.join(','), per_page: 100 },
     });

@@ -46,23 +46,11 @@ async function fetchUserRole(wpUser) {
 }
 
 const STATUS_TRANSITIONS = {
-  [ROLES.BRANCH_MANAGER]: {
-    processing: ['sh-progress', 'cancelled'],
-    'sh-progress': ['sh-ready', 'cancelled'],
-    'sh-pickup': ['cancelled'],
-    'sh-ready': ['cancelled'],
-    'sh-otw': ['cancelled'],
-  },
-  [ROLES.BRANCH_USER]: {
-    processing: ['sh-progress', 'cancelled'],
-    'sh-progress': ['sh-ready', 'cancelled'],
-  },
   [ROLES.DELIVERY_USER]: {
-    processing: ['sh-pickup'],
-    'sh-pickup': ['sh-progress'],
-    'sh-ready': ['sh-otw'],
-    'sh-otw': ['completed'],
+    processing: ['sh-received', 'cancelled'],
+    'sh-received': ['completed', 'cancelled'],
   },
+  // branch_manager and branch_user are view-only (no status transitions)
 };
 
 function canTransitionStatus(role, currentStatus, newStatus) {

@@ -13,6 +13,9 @@ router.get('/:id', authenticate, orderController.getOrder);
 // PUT /:id/status - update status (authenticate + all roles, controller validates transitions)
 router.put('/:id/status', authenticate, orderController.updateOrderStatus);
 
+// POST /:id/claim - delivery user claims an unassigned order (first come first served)
+router.post('/:id/claim', authenticate, requireRole([ROLES.DELIVERY_USER]), orderController.claimOrder);
+
 // PUT /:id/assign-delivery - assign delivery user (authenticate + general_manager, store_admin, branch_manager)
 router.put('/:id/assign-delivery', authenticate, requireRole(ASSIGN_DELIVERY_ROLES), orderController.assignDelivery);
 
